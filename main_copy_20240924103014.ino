@@ -3,13 +3,21 @@
 #include <MQTTClient.h>
 #include <ArduinoJson.h>
 #include "WiFi.h"
+#include <Adafruit_TMP117.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
 
 // The MQTT topics that this device should publish/subscribe
 #define AWS_IOT_PUBLISH_TOPIC   "esp32/pub"
 #define AWS_IOT_SUBSCRIBE_TOPIC "esp32/sub"
 
+// I2C pins for the TMP117 sensor (these can be changed to match your board configuration)
+#define SDA_PIN 21  // GPIO 21 for SDA
+#define SCL_PIN 22  // GPIO 22 for SCL
+
 WiFiClientSecure net = WiFiClientSecure();
 MQTTClient client = MQTTClient(256);
+Adafruit_TMP117 tmp117;
 
 void connectAWS()
 {
@@ -18,7 +26,7 @@ void connectAWS()
 
   Serial.println("Connecting to Wi-Fi");
 
-  while (WiFi.status() != WL_CONNECTED){
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
@@ -41,7 +49,7 @@ void connectAWS()
     delay(100);
   }
 
-  if(!client.connected()){
+  if (!client.connected()) {
     Serial.println("AWS IoT Timeout!");
     return;
   }
@@ -54,25 +62,38 @@ void connectAWS()
 
 void publishMessage()
 {
+  sensors_event_t temp_event;
+  tmp117.getEvent(&temp_event);  // Get temperature data from TMP117 sensor
+  float temperatureC = temp_event.temperature;  // Temperature in Celsius
+
   StaticJsonDocument<200> doc;
   doc["time"] = millis();
-  doc["sensor_a0"] = analogRead(0);
+  doc["temperature"] = temperatureC;  // Use the temperature value read from the sensor
   char jsonBuffer[512];
   serializeJson(doc, jsonBuffer); // print to client
 
   client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
+  Serial.println("Message published: ");
+  serializeJsonPretty(doc, Serial); // Print the message to Serial Monitor for debugging
 }
 
 void messageHandler(String &topic, String &payload) {
   Serial.println("incoming: " + topic + " - " + payload);
-
-//  StaticJsonDocument<200> doc;
-//  deserializeJson(doc, payload);
-//  const char* message = doc["message"];
 }
 
 void setup() {
-  Serial.begin(9600);
+   Serial.begin(115200);
+  Serial.println("Starting setup...");
+  // Initialize I2C communication (Set custom SDA and SCL pins)
+  Wire.begin(21, 20);
+
+  // Initialize TMP117 sensor
+  if (!tmp117.begin(0x48)) {  // Use the I2C address for the TMP117 sensor
+    Serial.println("Couldn't find TMP117 sensor!");
+    while (1);
+  }
+  Serial.println("TMP117 sensor initialized.");
+  
   connectAWS();
 }
 
